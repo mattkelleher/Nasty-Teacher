@@ -1,4 +1,4 @@
-# train a student network distilling from teacher
+# train a nasty teacher with an adversarial network
 
 import torch
 import torch.nn as nn
@@ -16,7 +16,6 @@ from utils.utils import RunningAverage, set_logger, Params
 from model import *
 from data_loader import fetch_dataloader
 
-
 # ************************** random seed **************************
 seed = 0
 
@@ -30,9 +29,7 @@ torch.backends.cudnn.benchmark = False
 
 # ************************** parameters **************************
 parser = argparse.ArgumentParser()
-parser.add_argument('--save_path', default='experiments/CIFAR10/kd_normal/cnn', type=str)
-parser.add_argument('--teacher_resume', default=None, type=str,
-                    help='If you specify the teacher resume here, we will use it instead of parameters from json file')
+parser.add_argument('--save_path', default='experiments/CIFAR10/adversarial_teacher/resnet18_self', type=str)
 parser.add_argument('--resume', default=None, type=str)
 parser.add_argument('--gpu_id', default=[0], type=int, nargs='+', help='id(s) for CUDA_VISIBLE_DEVICES')
 args = parser.parse_args()
@@ -41,23 +38,12 @@ device_ids = args.gpu_id
 torch.cuda.set_device(device_ids[0])
 
 
-def loss_fn_kd(outputs, labels, teacher_outputs, params):
-    """
-    Compute the knowledge-distillation (KD) loss given outputs, labels.
-    """
-    alpha = params.alpha
-    T = params.temperature
-    KD_loss = nn.KLDivLoss(reduction='batchmean')(F.log_softmax(outputs/T, dim=1),
-                             F.softmax(teacher_outputs/T, dim=1)) * (alpha * T * T) + \
-              nn.CrossEntropyLoss()(outputs, labels) * (1. - alpha)
-
-    return KD_loss
-
-
 # ************************** training function **************************
-def train_epoch_kd(model, t_model, optim, loss_fn_kd, data_loader, params):
+def train_epoch_kd_adv(model, model_ad, optim, data_loader, epoch, params):
     model.train()
-    t_model.eval()
+    model_ad.eval()
+    tch_loss_avg = RunningAverage()
+    ad_loss_avg = RunningAverage()
     loss_avg = RunningAverage()
 
     with tqdm(total=len(data_loader)) as t:  # Use tqdm for progress bar
@@ -66,15 +52,27 @@ def train_epoch_kd(model, t_model, optim, loss_fn_kd, data_loader, params):
                 train_batch = train_batch.cuda()  # (B,3,32,32)
                 labels_batch = labels_batch.cuda()  # (B,)
 
-            # compute model output and loss
-            output_batch = model(train_batch)  # logit without SoftMax
+            # compute (teacher) model output and loss
+            output_tch = model(train_batch)  # logit without SoftMax
 
-            # get one batch output from teacher_outputs list
+            # teacher loss: CE(output_tch, label)
+            tch_loss = nn.CrossEntropyLoss()(output_tch, labels_batch)
+
+            # ############ adversarial loss ####################################
+            # computer adversarial model output
             with torch.no_grad():
-                output_teacher_batch = t_model(train_batch)   # logit without SoftMax
+                output_stu = model_ad(train_batch)  # logit without SoftMax
+            output_stu = output_stu.detach()
 
-            # CE(output, label) + KLdiv(output, teach_out)
-            loss = loss_fn_kd(output_batch, labels_batch, output_teacher_batch, params)
+            # adversarial loss: KLdiv(output_stu, output_tch)
+            T = params.temperature
+            adv_loss = nn.KLDivLoss(reduction='batchmean')(F.log_softmax(output_stu / T, dim=1),
+                                      F.softmax(output_tch / T, dim=1)) * (T * T)   # wish to max this item
+
+            # total loss
+            loss = tch_loss - params.weight * adv_loss + 100.0  # make the loss positive by adding a constant
+
+            # ############################################################
 
             optim.zero_grad()
             loss.backward()
@@ -82,11 +80,13 @@ def train_epoch_kd(model, t_model, optim, loss_fn_kd, data_loader, params):
 
             # update the average loss
             loss_avg.update(loss.item())
+            tch_loss_avg.update(tch_loss.item())
+            ad_loss_avg.update(adv_loss.item())
 
             # tqdm setting
             t.set_postfix(loss='{:05.3f}'.format(loss_avg()))
             t.update()
-    return loss_avg()
+    return loss_avg(), tch_loss_avg(), ad_loss_avg()
 
 
 def evaluate(model, loss_fn, data_loader, params):
@@ -120,21 +120,22 @@ def evaluate(model, loss_fn, data_loader, params):
     return metrics_mean
 
 
-def train_and_eval_kd(model, t_model, optim, loss_fn, train_loader, dev_loader, params):
+def train_and_eval_kd_adv(model, model_ad, optim, train_loader, dev_loader, params):
     best_val_acc = -1
     best_epo = -1
     lr = params.learning_rate
 
     for epoch in range(params.num_epochs):
-        # LR schedule *****************
         lr = adjust_learning_rate(optim, epoch, lr, params)
-
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
         logging.info('Learning Rate {}'.format(lr))
 
         # ********************* one full pass over the training set *********************
-        train_loss = train_epoch_kd(model, t_model, optim, loss_fn, train_loader, params)
+        train_loss, train_tloss, train_aloss = train_epoch_kd_adv(model, model_ad, optim,
+                                                                  train_loader, epoch, params)
         logging.info("- Train loss : {:05.3f}".format(train_loss))
+        logging.info("- Train teacher loss : {:05.3f}".format(train_tloss))
+        logging.info("- Train adversarial loss : {:05.3f}".format(train_aloss))
 
         # ********************* Evaluate for one epoch on validation set *********************
         val_metrics = evaluate(model, nn.CrossEntropyLoss(), dev_loader, params)  # {'acc':acc, 'loss':loss}
@@ -200,8 +201,8 @@ if __name__ == "__main__":
 
     logging.info('Number of class: ' + str(num_class))
 
-    # ############################### Student Model ###############################
-    logging.info('Create Student Model --- ' + params.model_name)
+    logging.info('Create Model --- ' + params.model_name)
+
 
     # ResNet 18 / 34 / 50 ****************************************
     if params.model_name == 'resnet18':
@@ -251,90 +252,90 @@ if __name__ == "__main__":
         print('Not support for model ' + str(params.model_name))
         exit()
 
-    # ############################### Teacher Model ###############################
-    logging.info('Create Teacher Model --- ' + params.teacher_model)
+    # Adversarial model *************************************************************
+    logging.info('Create Adversarial Model --- ' + params.adversarial_model)
+
     # ResNet 18 / 34 / 50 ****************************************
-    if params.teacher_model == 'resnet18':
-        teacher_model = ResNet18(num_class=num_class)
-    elif params.teacher_model == 'resnet34':
-        teacher_model = ResNet34(num_class=num_class)
-    elif params.teacher_model == 'resnet50':
-        teacher_model = ResNet50(num_class=num_class)
+    if params.adversarial_model == 'resnet18':
+        adversarial_model = ResNet18(num_class=num_class)
+    elif params.adversarial_model == 'resnet34':
+        adversarial_model = ResNet34(num_class=num_class)
+    elif params.adversarial_model == 'resnet50':
+        adversarial_model = ResNet50(num_class=num_class)
 
     # PreResNet(ResNet for CIFAR-10)  20/32/56/110 ***************
-    elif params.teacher_model.startswith('preresnet20'):
-        teacher_model = PreResNet(depth=20)
-    elif params.teacher_model.startswith('preresnet32'):
-        teacher_model = PreResNet(depth=32)
-    elif params.teacher_model.startswith('preresnet56'):
-        teacher_model = PreResNet(depth=56)
-    elif params.teacher_model.startswith('preresnet110'):
-        teacher_model = PreResNet(depth=110)
+    elif params.adversarial_model.startswith('preresnet20'):
+        adversarial_model = PreResNet(depth=20)
+    elif params.adversarial_model.startswith('preresnet32'):
+        adversarial_model = PreResNet(depth=32)
+    elif params.adversarial_model.startswith('preresnet56'):
+        adversarial_model = PreResNet(depth=56)
+    elif params.adversarial_model.startswith('preresnet110'):
+        adversarial_model = PreResNet(depth=110)
 
     # DenseNet *********************************************
-    elif params.teacher_model == 'densenet121':
-        teacher_model = densenet121(num_class=num_class)
-    elif params.teacher_model == 'densenet161':
-        teacher_model = densenet161(num_class=num_class)
-    elif params.teacher_model == 'densenet169':
-        teacher_model = densenet169(num_class=num_class)
+    elif params.adversarial_model == 'densenet121':
+        adversarial_model = densenet121(num_class=num_class)
+    elif params.adversarial_model == 'densenet161':
+        adversarial_model = densenet161(num_class=num_class)
+    elif params.adversarial_model == 'densenet169':
+        adversarial_model = densenet169(num_class=num_class)
 
     # ResNeXt *********************************************
-    elif params.teacher_model == 'resnext29':
-        teacher_model = CifarResNeXt(cardinality=8, depth=29, num_classes=num_class)
+    elif params.adversarial_model == 'resnext29':
+        adversarial_model = CifarResNeXt(cardinality=8, depth=29, num_classes=num_class)
 
-    elif params.teacher_model == 'mobilenetv2':
-        teacher_model = MobileNetV2(class_num=num_class)
+    elif params.adversarial_model == 'mobilenetv2':
+        adversarial_model = MobileNetV2(class_num=num_class)
 
-    elif params.teacher_model == 'shufflenetv2':
-        teacher_model = shufflenetv2(class_num=num_class)
+    elif params.adversarial_model == 'shufflenetv2':
+        adversarial_model = shufflenetv2(class_num=num_class)
 
-    elif params.teacher_model == 'net':
-        teacher_model = Net(num_class, args)
+    # Basic neural network ********************************
+    elif params.adversarial_model == 'net':
+        adversarial_model = Net(num_class, params)
 
-    elif params.teacher_model == 'mlp':
-        teacher_model = MLP(num_class=num_class)
+    elif params.adversarial_model == 'mlp':
+        adversarial_model = MLP(num_class=num_class)
 
     else:
-        teacher_model = None
+        adversarial_model = None
+        print('Not support for model ' + str(params.adversarial_model))
         exit()
 
-    # Allow for deeper teacher model
-    if 'teacher_deeper' in params.dict:
-        if params.teacher_deeper:
-            in_features = teacher_model.linear.in_features    
-            teacher_model.linear = nn.Linear(in_features , params.teacher_deeper)  
-            teacher_model = nn.Sequential(teacher_model, nn.Linear(params.teacher_deeper, num_class))
-
-        
     if params.cuda:
         model = model.cuda()
-        teacher_model = teacher_model.cuda()
+        adversarial_model = adversarial_model.cuda()
 
     if len(args.gpu_id) > 1:
         model = nn.DataParallel(model, device_ids=device_ids)
-        teacher_model = nn.DataParallel(teacher_model, device_ids=device_ids)
+        adversarial_model = nn.DataParallel(adversarial_model, device_ids=device_ids)
 
     # checkpoint ********************************
     if args.resume:
-        logging.info('- Load checkpoint model from {}'.format(args.resume))
+        logging.info('- Load checkpoint from {}'.format(args.resume))
         checkpoint = torch.load(args.resume, map_location=lambda storage, loc: storage)
         model.load_state_dict(checkpoint['state_dict'])
     else:
         logging.info('- Train from scratch ')
 
-    # load teacher model
-    if args.teacher_resume:
-        teacher_resume = args.teacher_resume
-        logging.info('------ Teacher Resume from system parameters!')
-    else:
-        teacher_resume = params.teacher_resume
-    logging.info('- Load Trained teacher model from {}'.format(teacher_resume))
-    checkpoint = torch.load(teacher_resume)
-    teacher_model.load_state_dict(checkpoint['state_dict'])
+    # load trained Adversarial model ****************************
+    logging.info('- Load Trained adversarial model from {}'.format(params.adversarial_resume))
+    checkpoint = torch.load(params.adversarial_resume)
+    adversarial_model.load_state_dict(checkpoint['state_dict'])
+	
+	# load pretrained model baseline
+    logging.info("- Load Trained base model from {}".format(params.adversarial_resume))
+    checkpoint_b = torch.load(params.adversarial_resume)
+    model.load_state_dict(checkpoint_b['state_dict'])
+	
+	#Freeze all convolutional / non-fully connected layers
+    for lname, layer in model.named_children():
+        if 'linear' in lname:
+            continue
+        for pname, param in layer.named_parameters():
+            param.requires_grad = False
 
-
-    
     # ############################### Optimizer ###############################
     if params.model_name == 'net' or params.model_name == 'mlp':
         optimizer = Adam(model.parameters(), lr=params.learning_rate)
@@ -342,17 +343,7 @@ if __name__ == "__main__":
     else:
         optimizer = SGD(model.parameters(), lr=params.learning_rate, momentum=0.9, weight_decay=5e-4)
         logging.info('Optimizer: SGD')
-
-    # ************************** LOSS **************************
-    criterion = loss_fn_kd
-
-    # ************************** Teacher ACC **************************
-    logging.info("- Teacher Model Evaluation ....")
-    val_metrics = evaluate(teacher_model, nn.CrossEntropyLoss(), devloader, params)  # {'acc':acc, 'loss':loss}
-    metrics_string = " ; ".join("{}: {:05.3f}".format(k, v) for k, v in val_metrics.items())
-    logging.info("- Teacher Model Eval metrics : " + metrics_string)
-
+    print(model) #TODO remove
     # ************************** train and evaluate **************************
-    train_and_eval_kd(model, teacher_model, optimizer, criterion, trainloader, devloader, params)
-
+    train_and_eval_kd_adv(model, adversarial_model, optimizer, trainloader, devloader, params)
 
