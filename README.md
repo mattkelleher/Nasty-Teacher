@@ -1,7 +1,7 @@
-# Undistillable: Making A Nasty Teacher That CANNOT teach students
+# A Nasty Crash Course: Fast and Effective Methods to Supress Student Model Learning
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-["Undistillable: Making A Nasty Teacher That CANNOT teach students"](https://openreview.net/forum?id=0zvfm-nZqQs)
+["A Nasty Crash Course: Fast and Effective Methods to Supress Student Model Learning"]
 
 Haoyu Ma, Tianlong Chen, Ting-Kuei Hu, Chenyu You, Xiaohui Xie, Zhangyang Wang    
 In ICLR 2021 Spotlight Oral
