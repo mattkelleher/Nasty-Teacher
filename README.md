@@ -9,9 +9,7 @@ Sameer Bibikar, Matthew Kelleher
 
 ## Overview 
 
-* We propose the concept of **Nasty Teacher**, a defensive approach to prevent knowledge leaking and unauthorized model cloning through KD without sacrificing performance. 
-* We propose a simple yet efficient algorithm, called **self-undermining knowledge distillation**, to directly build a nasty teacher through self-training, requiring no additional dataset
-nor auxiliary network. 
+* TODO
 
 
 ## Prerequisite
