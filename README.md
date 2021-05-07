@@ -3,8 +3,7 @@
 
 ["A Nasty Crash Course: Fast and Effective Methods to Supress Student Model Learning"]
 
-Haoyu Ma, Tianlong Chen, Ting-Kuei Hu, Chenyu You, Xiaohui Xie, Zhangyang Wang    
-In ICLR 2021 Spotlight Oral
+Sameer Bibikar, Matthew Kelleher
 
 
 
