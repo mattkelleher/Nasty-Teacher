@@ -71,7 +71,7 @@ Note that this training initalizes the network with the weights of the non-nasty
 
 For the "mild deep" / "light deep" training:
 ~~~
-python train_nasty_light_dee[.py --save_path [xxx] --layer_size [yyy]
+python train_nasty_light_deep.py --save_path [xxx] --layer_size [yyy]
 ~~~
 * This nasty training option consists of initalizeing the convolution layer weights to the weights of the adversarial network and freezing them and then adding an additional fully connected layer to the network as described in the paper.
 * The optional parameter --layer_size allows for the user to adjust the size of the added layer. If the parameter is omitted the layer size will default to the number of classes in the dataset. 
