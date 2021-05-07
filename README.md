@@ -57,9 +57,15 @@ For the original, fully nasty training use:
 python train_nasty.py --save_path [XXX]
 ~~~
 
+For half nasty training:
+~~~
+python train_half_nasty.py --save_path [XXX]
+~~~
+Whole network is retrainined, nasty KL divergence term is only applied to fully connected layers.
+
 For the "mild" / "light" training:
 ~~~
-python train_nasty_light.py --save_path [xxx]
+python train_nasty_light.py --save_path [XXX]
 ~~~
 Note that this training initalizes the network with the weights of the non-nasty adversarial network, freezes the convolutional layers, and then performs the nasty training on only the fully connected layers. 
 
