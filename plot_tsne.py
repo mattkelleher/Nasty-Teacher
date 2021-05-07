@@ -34,6 +34,7 @@ parser.add_argument('--save_path', default='experiments/CIFAR10/baseline/resnet1
 parser.add_argument('--resume', default=None, type=str)
 parser.add_argument('--gpu_id', default=[0], type=int, nargs='+', help='id(s) for CUDA_VISIBLE_DEVICES')
 parser.add_argument('--no-cuda', dest='cuda', action='store_false', default=True)
+parser.add_argument('--layer-size', default=None, type=int)
 args = parser.parse_args()
 
 device_ids = args.gpu_id
@@ -61,21 +62,15 @@ def plot_tsne(model, loss_fn, data_loader, params):
             all_outputs.append(output_batch)
             labels_batch = labels_batch.cpu().numpy()
             all_labels.append(labels_batch)
-            #if i > 10:
-            #    break # TODO
 
     all_outputs = np.concatenate(all_outputs)
     all_labels = np.concatenate(all_labels)
-    print(all_outputs)
-    print(all_outputs.shape)
-    print(all_labels.shape)
 
-    embedded = TSNE(learning_rate=100, n_iter=1000, perplexity=50, n_jobs=-1).fit_transform(all_outputs)
-    print(embedded.shape)
+    embedded = TSNE(learning_rate=1000, n_iter=1000, perplexity=20, n_jobs=-1).fit_transform(all_outputs)
 
     fig, ax = plt.subplots()
     ax.scatter(embedded[:, 0], embedded[:, 1], s=1, c=all_labels, cmap='tab10', alpha=0.5)
-    fig.savefig('/tmp/test.png')
+    return fig, ax
 
 
 
@@ -160,6 +155,16 @@ if __name__ == "__main__":
         print('Not support for model ' + str(params.model_name))
         exit()
 
+
+
+    if 'teacher_deeper' in params.dict:
+        if args.layer_size is None:
+            args.layer_size = params.teacher_deeper
+        if params.teacher_deeper:
+            in_features = model.linear.in_features
+            model.linear = nn.Linear(in_features, args.layer_size)
+            model = nn.Sequential(model, nn.Linear(args.layer_size, num_class))
+
     if params.cuda:
         model = model.cuda()
 
@@ -178,6 +183,7 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss()
 
     # ################################# train and evaluate #################################
-    plot_tsne(model, criterion, trainloader, params)
+    fig, ax = plot_tsne(model, criterion, trainloader, params)
+    fig.savefig(os.path.join(args.save_path, 'tsne.png'))
 
 
