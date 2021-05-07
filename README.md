@@ -52,9 +52,24 @@ The normal teacher network will serve as the **adversarial network** for the tra
 
 
 ##### Step 2: Train a nasty teacher network
+For the original, fully nasty training use:
 ~~~
 python train_nasty.py --save_path [XXX]
 ~~~
+
+For the "mild" / "light" training:
+~~~
+python train_nasty_light.py --save_path [xxx]
+~~~
+Note that this training initalizes the network with the weights of the non-nasty adversarial network, freezes the convolutional layers, and then performs the nasty training on only the fully connected layers. 
+
+For the "mild deep" / "light deep" training:
+~~~
+python train_nasty_light_dee[.py --save_path [xxx] --layer_size [yyy]
+~~~
+This nasty training option consists of initalizeing the convolution layer weights to the weights of the adversarial network and freezing them and then adding an additional fully connected layer to the network as described in the paper.
+The optional parameter --layer_size allows for the user to adjust the size of the added layer. If the parameter is omitted the layer size will default to the number of classes in the dataset. 
+
 Again, [XXX] specifies the directory of `params.json`, 
 which contains the information of adversarial networks and hyperparameters for training.  
 You need to specify the architecture of adversarial network and its checkpoint in this file. 
@@ -87,21 +102,13 @@ python train_kd.py --save_path experiments/CIFAR10/kd_nasty_resnet18/cnn
 python train_kd.py --save_path experiments/CIFAR10/kd_normal_resnet18/cnn
 ~~~
 
-
+NOTE: When distilling from a "mildly deep" / "light deep" model the `params.json` shoudl include an addition parameter, `teacher_deep`, specifying the size of the added layer in the teacher model.
 
 ## Citation
-~~~
-@inproceedings{
-ma2021undistillable,
-title={Undistillable: Making A Nasty Teacher That {\{}CANNOT{\}} teach students},
-author={Haoyu Ma and Tianlong Chen and Ting-Kuei Hu and Chenyu You and Xiaohui Xie and Zhangyang Wang},
-booktitle={International Conference on Learning Representations},
-year={2021},
-url={https://openreview.net/forum?id=0zvfm-nZqQs}
-}
-~~~
+
 
 ## Acknowledgement
+* [Nasty-Teacher](https://github.com/VITA-Group/Nasty-Teacher)
 * [Teacher-free KD](https://github.com/yuanli2333/Teacher-free-Knowledge-Distillation)
 * [DAFL](https://github.com/huawei-noah/Data-Efficient-Model-Compression/tree/master/DAFL) 
 * [DeepInversion](https://github.com/NVlabs/DeepInversion)
