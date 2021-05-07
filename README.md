@@ -102,7 +102,7 @@ python train_kd.py --save_path experiments/CIFAR10/kd_nasty_resnet18/cnn
 python train_kd.py --save_path experiments/CIFAR10/kd_normal_resnet18/cnn
 ~~~
 
-NOTE: When distilling from a "mildly deep" / "light deep" model the `params.json` shoudl include an addition parameter, `teacher_deep`, specifying the size of the added layer in the teacher model.
+NOTE: When distilling from a "mildly deep" / "light deep" model the `params.json` shoudl include an addition parameter, `teacher_deeper`, specifying the size of the added layer in the teacher model.
 
 ## Citation
 
