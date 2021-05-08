@@ -1,15 +1,15 @@
 # Fast and Effective Nasty Teaher
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
 
-["A Nasty Crash Course: Fast and Effective Methods to Supress Student Model Learning"]
+["Just Mildly Nasty: Fast and Effective Methods to Supress Student Model Learning"]
 
 Sameer Bibikar, Matthew Kelleher
 
 
 
-## Overview 
+<!-- ## Overview TODO--> 
 
-* TODO
+<!-- * TODO -->
 
 
 ## Prerequisite
